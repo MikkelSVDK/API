@@ -3,7 +3,8 @@ const http = require('http'),
   cors = require('cors'),
   app = express(),
   axios = require('axios'),
-  nodemailer = require("nodemailer");
+  nodemailer = require("nodemailer"),
+  { make } = require('simple-body-validator');
 
 const nodemailerConfig = require("./config/mail.config.json"),
   recaptchaConfig = require("./config/recapcha.config.json");
@@ -17,22 +18,26 @@ app.use(cors());
 let transporter = nodemailer.createTransport(nodemailerConfig);
 
 app.post('/mail/send', async (req, res) => {
-  let reCaptchaRes = await axios.get(`https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaConfig.secretKey}&response=${req.body["recaptcha_response"]}`);
-  if(reCaptchaRes.data.success != true)
-    res.status(400).send("Invalid reCAPTCHA");
+  const validator = make(req.body, {
+    recaptcha_response: 'required',
+    name: 'required|string|min:3|max:64',
+    email: 'required|email',
+    message: 'required|string'
+  })
 
-  if(typeof req.body.name != "string" || req.body.name.length > 64)
-    res.status(400).send("Invalid body parameter name");
+  if(!validator.validate())
+    return res.status(400).send(validator.errors().all())
 
-  if(typeof req.body.email != "string" || !(req.body.email.match(/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/)))
-    res.status(400).send("Invalid body parameter email");
-
-  if(typeof req.body.message != "string")
-    res.status(400).send("Invalid body parameter message");
+  let reCaptchaRes = await axios.get(`https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaConfig.secretKey}&response=${req.body.recaptcha_response}`)
+  if(!reCaptchaRes.data.success)
+    return res.status(400).send({
+      "recaptcha_response": [
+          "The recaptcha response is invalid."
+      ]
+    })
 
   try{
     await transporter.sendMail({
-      //from: 'mikkel@mikkelsv.dk',
       to: "mikkel@mikkelsv.dk",
       replyTo: `"${req.body.name}" <${req.body.email}>`,
       subject: "Enquiry via website",
